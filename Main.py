@@ -40,6 +40,12 @@
 
 # In[1]:
 
+get_ipython().magic('matplotlib inline')
+get_ipython().magic("config InlineBackend.figure_format='retina'")
+
+
+# In[2]:
+
 import nltk
 import os
 import time
@@ -50,16 +56,22 @@ import re
 from Preprocessing import Preprocessing as preproc
 from nltk.corpus import stopwords as sw
 import pandas as pd
+import numpy as np
 
 from nltk.classify import SklearnClassifier
 from sklearn.naive_bayes import BernoulliNB
 from sklearn.svm import SVC
+from sklearn.metrics import precision_recall_curve
+from sklearn.preprocessing import LabelEncoder
+from keras.utils import np_utils
+
+import matplotlib.pyplot as plt
 
 
 # ## 1. Analyse the structure of the data
 # To give an example of the shape of the raw data, below it is shown a short section of one of the articles used, containing sentences of its corresponding abstract and introduction.
 
-# In[2]:
+# In[3]:
 
 sample = Files().get_sample_file(path="SentenceCorpus/labeled_articles/",
                     extension="1.txt")
@@ -96,7 +108,7 @@ sample
 #     
 # 
 
-# In[3]:
+# In[4]:
 
 files = Files()
 preprocessing = preproc()
@@ -124,7 +136,7 @@ preprocessing.reset_all_tags()
 # 
 # 
 
-# In[4]:
+# In[5]:
 
 feats_abs = preprocessing.build_feature_set(files.label_abstract,
                                             'abstract')
@@ -139,7 +151,7 @@ feats_intro = preprocessing.build_feature_set(files.label_intro,
 # As a default, we consider 30% of corpus should be testing and 15% of the training set should be used for the dev_set. The benefit of including the dev_set is helping our model to tune the fitted model. However, because of limit fo time, we are not going to use it for this first version of the trained models.
 # 
 
-# In[5]:
+# In[6]:
 
 train_set,dev_set,test_set = preprocessing.split_dataset(
                                         feats_abs,feats_intro)
@@ -148,7 +160,7 @@ train_data, test_data, dev_data = preprocessing.extract_feats(
                                                 train_set,dev_set,test_set)
 
 
-# In[6]:
+# In[7]:
 
 test = [sentence[0] for sentence in dev_data]
 y_labels = [sentence[1] for sentence in dev_data]
@@ -156,12 +168,12 @@ y_labels = [sentence[1] for sentence in dev_data]
 
 # ## 5. Training/Testing Models
 
-# In[7]:
+# In[8]:
 
 def save_prod_dist(model,test_data):
     """
     * Extract probability distributions obtained for each class of 
-    *the classifier
+    * the classifier
     """
     
     y_label = 0
@@ -178,52 +190,107 @@ def save_prod_dist(model,test_data):
     return  modeldist_probs
 
 
+# In[9]:
+
+def plot_prec_recall(precision,recall,modelName):
+    plt.clf()
+    plt.plot(recall, precision,lw=3, color='navy',
+         label='Precision-Recall curve')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.ylim([0.0, 1.05])
+    plt.xlim([0.0, 1.0])
+    plt.title('Precision-Recall of ' + modelName)
+    plt.legend(loc="lower left")
+    plt.show()
+    return
+
+def classify(model, featureset):
+    return model.prob_classify(featureset).max()
+
+def compute_metrics(model,testset, y_labels, modeldist_probs,modelName):
+    
+    y_true = []
+    
+    prob_dists = [max(dist[0:4]) for dist in modeldist_probs]
+    prob_dists = np.array(prob_dists)
+    
+    preds = [classify(NBclassifier,featset) for featset in testset]
+
+    for i in range(0, len(y_labels)):
+        if preds[i] == y_labels[i]:
+            y_true.append(1)
+        else:
+            y_true.append(0)
+            
+    precision, recall, thresholds = precision_recall_curve( y_true, prob_dists)
+    
+    plot_prec_recall(precision,recall,modelName)
+    
+    return
+
+
 # ## Naive Bayes Classifier
 
 # The accuracy of the Naive Bayes classifier shows the poorest performance among the three classifiers. Its accuracy is 55% of the classifications.
 # 
 # Moreover, we can see that the tags VBP, NNS and PRP are among the most informative parameters for the model to determine the class of any given sentence.
 
-# In[8]:
+# In[10]:
 
 NBclassifier = nltk.NaiveBayesClassifier.train(train_data)
 print(nltk.classify.accuracy(NBclassifier,dev_data))
 
 
-# In[9]:
+# In[11]:
 
 NBdist_probs = save_prod_dist(NBclassifier,test_data)
 NBclassifier.show_most_informative_features()
+
+
+# In[12]:
+
+compute_metrics(NBclassifier,test,y_labels,NBdist_probs,'NBClassifier')
 
 
 # # SklearnClassifier
 
 # SKlearn classifier is the best classifier among the three algorithms according to accuracy. It's accuracy is over 60.5%. 
 
-# In[11]:
+# In[13]:
 
 SKclassifier = SklearnClassifier(BernoulliNB()).train(train_data)
 print(nltk.classify.accuracy(SKclassifier,dev_data))
 
 
-# In[12]:
+# In[14]:
 
 SKdist_probs = save_prod_dist(SKclassifier,test_data)
+
+
+# In[15]:
+
+compute_metrics(SKclassifier,test,y_labels,SKdist_probs,'SKClassifier')
 
 
 # # Support Vector Classifier
 
 # Finally, SVC proves to have a slightly better performance than the Naive Bayes model. The accuracy of SVC is close to 54.5%. 
 
-# In[13]:
+# In[16]:
 
 SVclassifier = SklearnClassifier(SVC(), sparse=False).train(train_data)
 print(nltk.classify.accuracy(SVclassifier,test_data))
 
 
-# In[14]:
+# In[17]:
 
 SVdist_probs = save_prod_dist(SVclassifier,test_data)
+
+
+# In[18]:
+
+compute_metrics(SVclassifier,test,y_labels,SVdist_probs,'SVClassifier')
 
 
 # ## 6. Model Selection
